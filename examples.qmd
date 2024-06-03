@@ -1,0 +1,137 @@
+---
+title: "REMA examples"
+format: html
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| output: false
+
+# install.packages("devtools")
+# devtools::install_github("afsc-assessments/rema", dependencies = TRUE, build_vignettes = FALSE)
+library(rema)
+libs <- c('readr', 'dplyr', 'tidyr', 'ggplot2', 'cowplot')
+if(length(libs[which(libs %in% rownames(installed.packages()) == FALSE )]) > 0) {install.packages(libs[which(libs %in% rownames(installed.packages()) == FALSE)])}
+lapply(libs, library, character.only = TRUE)
+ggplot2::theme_set(cowplot::theme_cowplot(font_size = 8) +
+                     cowplot::background_grid() +
+                     cowplot::panel_border())
+```
+
+## Simple case: Aleutian Islands Pacific cod
+
+-   One survey index: AI bottom trawl biomass
+
+-   Single time series (one area/stratum)
+
+-   One fixed effect parameter estimated (process error SD)
+
+```{r}
+biomass_dat <- read_csv('ai_pcod_2022_biomass_dat.csv')
+
+input <- prepare_rema_input(model_name = '2022 AI Pacific cod',
+                            biomass_dat = biomass_dat)
+
+m <- fit_rema(input)
+```
+
+You can add options to executable code like this
+
+```{r}
+out <- tidy_rema(m)
+plot_rema(out)$biomass_by_strata
+```
+
+## Complex case: Gulf of Alaska Thornyheads
+
+-   Two survey indices (GOA bottom trawl biomass and longline survey relative population weights; RPWs)
+
+-   Trawl survey stratified by depth and area (9 strata)
+
+    -   Western GOA, Central GOA, Eastern GOA x 0-500 m, 501-700 m, 701-1000 m
+
+-   Longline survey stratified by area only (3 strata)
+
+    -   Western GOA, Central GOA, Eastern GOA
+
+-   Six fixed effects parameters
+
+    -   Three process error SDs estimated (shared within each area across depth strata)
+
+    -   One scaling parameter for the longline survey
+
+    -   One additional observation error SD for the biomass survey (shared across all strata)
+
+    -   One additional observation error SD for the longline survey (shared across all strata)
+
+    ```{r}
+
+    biomass_dat <- read_csv('goa_thornyhead_2022_biomass_dat.csv') # trawl biomass
+    cpue_dat <- read_csv('goa_thornyhead_2022_cpue_dat.csv') # longline RPWs
+
+    input <- prepare_rema_input(model_name = '2022 GOA thornyheads',
+                                multi_survey = TRUE,
+                                biomass_dat = biomass_dat,
+                                cpue_dat = cpue_dat,
+                                # RPWs are a summable/area-weighted effort index
+                                sum_cpue_index = TRUE, 
+                                # three process error parameters (log_PE) estimated,
+                                # indexed as follows for each biomass survey stratum
+                                # (shared within an area across depths):
+                                PE_options = list(pointer_PE_biomass = c(1, 1, 1, 2, 2, 2, 3, 3, 3)),
+                                # scaling parameter options:
+                                q_options = list(
+                                  # longline survey strata (n=3) indexed as follows for the
+                                  # biomass strata (n=9)
+                                  pointer_biomass_cpue_strata = c(1, 1, 1, 2, 2, 2, 3, 3, 3),
+                                  # one scaling parameters (log_q) estimated, shared
+                                  # over all three LLS strata
+                                  pointer_q_cpue = c(1, 1, 1)),
+                                # estimate extra trawl survey observation error
+                                extra_biomass_cv = list(assumption = 'extra_cv'),
+                                # estimate extra longline survey observation error
+                                extra_cpue_cv = list(assumption = 'extra_cv'))
+
+    m <- fit_rema(input)
+    ```
+
+```{r}
+out <- tidy_rema(m)
+plots <- plot_rema(out)
+
+cowplot::plot_grid(plots$biomass_by_strata +
+                     theme(legend.position = 'none') +
+                     geom_line() +
+                     labs(x = NULL, y = NULL, subtitle = 'Trawl survey biomass (t)',
+                          fill = NULL, colour = NULL, shape = NULL, lty = NULL),
+                   plots$cpue_by_strata  +
+                     facet_wrap(~strata, ncol = 1)  +
+                     geom_line() +
+                     labs(x = NULL, y = NULL, subtitle = 'Longline survey RPW',
+                          fill = NULL, colour = NULL, shape = NULL, lty = NULL),
+                   ncol = 2,
+                   rel_widths = c(1.7, 1))
+```
+
+Plot the additional estimated observation error (bold error bar w/ whiskers = assumed CV from design-based survey estimates, full error bar w/ no whiskers = total (assumed + estimated):
+
+```{r}
+out <- tidy_extra_cv(out)
+plots <- plot_extra_cv(out)
+
+cowplot::plot_grid(plots$biomass_by_strata +
+                     theme(legend.position = 'none') +
+                     geom_line() +
+                     labs(x = NULL, y = NULL, subtitle = 'Trawl survey biomass (t)',
+                          fill = NULL, colour = NULL, shape = NULL, lty = NULL),
+                   plots$cpue_by_strata  +
+                     facet_wrap(~strata, ncol = 1)  +
+                     geom_line() +
+                     labs(x = NULL, y = NULL, subtitle = 'Longline survey RPW',
+                          fill = NULL, colour = NULL, shape = NULL, lty = NULL),
+                   ncol = 2,
+                   rel_widths = c(1.7, 1))
+```
+
+## 
